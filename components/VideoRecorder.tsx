@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Video, Mic, MicOff, StopCircle, RefreshCw, FileVideo, Save, Trash2, Upload, Lock, Smartphone, Camera } from 'lucide-react';
-import { VideoEvidence, LocationData } from '../types';
+import { VideoEvidence, LocationData } from '../../types';
 
 interface VideoRecorderProps {
   emergencyId: string;

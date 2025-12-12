@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import SOSButton from './SOSButton';
 import ActiveEmergency from './ActiveEmergency';
 import ChatAssistant from './ChatAssistant';
-import { AppMode, AppTab, EmergencyType, UserProfile } from '../types';
-import { Home, MessageSquare, User, Phone, Settings, Shield, ChevronRight, Bell, Moon, Lock, LogOut, ToggleLeft, ToggleRight, Smartphone, Eye, Download, Edit2, Save, X, Plus, Trash2, Check, AlertTriangle } from 'lucide-react';
+import { AppMode, AppTab, EmergencyType, UserProfile } from '../../types';
+import { Home, MessageSquare, User, Phone, Settings, Shield, ChevronRight, Bell, Moon, Lock, LogOut, ToggleLeft, ToggleRight, Smartphone, Eye, Download, Edit2, Save, X, Plus, Trash2, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { useEmergencySystem } from '../contexts/EmergencyContext';
 
 interface GeneralAppProps {
@@ -15,6 +15,7 @@ const GeneralApp: React.FC<GeneralAppProps> = ({ onLogout }) => {
   
   const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.HOME);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isDispatching, setIsDispatching] = useState(false);
   
   // Profile Editing State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -35,8 +36,20 @@ const GeneralApp: React.FC<GeneralAppProps> = ({ onLogout }) => {
   const myActiveEmergency = activeEmergencies.find(e => e.userId === currentUser?.id && e.status !== 'resolved');
 
   // --- Handlers ---
-  const handleSOSClick = () => {
-    dispatchEmergency(null);
+  const handleSOSClick = async () => {
+    setIsDispatching(true);
+    const startTime = Date.now();
+    
+    // Perform dispatch
+    await dispatchEmergency(null);
+    
+    // Ensure the loading screen shows for at least 2 seconds for UX reassurance
+    const elapsedTime = Date.now() - startTime;
+    if (elapsedTime < 2000) {
+        await new Promise(r => setTimeout(r, 2000 - elapsedTime));
+    }
+    
+    setIsDispatching(false);
   };
 
   const handleEmergencyUpdate = (type: EmergencyType | null) => {
@@ -401,7 +414,22 @@ const GeneralApp: React.FC<GeneralAppProps> = ({ onLogout }) => {
     </div>
   );
 
-  // Full Screen Emergency Overlay
+  // Full Screen Emergency Overlay with Priority
+  if (isDispatching) {
+     return (
+       <div className="fixed inset-0 z-[100] bg-charcoal flex items-center justify-center flex-col gap-6 animate-in fade-in duration-300">
+          <div className="relative">
+             <div className="absolute inset-0 bg-emergency/30 rounded-full animate-ping"></div>
+             <div className="w-20 h-20 bg-[#2f3640] border-4 border-emergency border-t-transparent rounded-full animate-spin relative z-10"></div>
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-black text-white uppercase tracking-wider animate-pulse">Locating...</h2>
+            <p className="text-gray-400 text-sm font-bold">Acquiring High-Precision GPS</p>
+          </div>
+       </div>
+     );
+  }
+
   if (myActiveEmergency) {
     return (
       <div className="fixed inset-0 z-50 bg-charcoal">

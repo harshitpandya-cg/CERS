@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { EmergencyType, VideoEvidence, UserProfile } from '../types';
-import { EMERGENCY_TYPES } from '../constants';
+import { EmergencyType, VideoEvidence, UserProfile } from '../../types';
+import { EMERGENCY_TYPES } from '../../constants';
 import TrackingMap from './TrackingMap';
 import AmbulanceCountdown from './AmbulanceCountdown';
 import VideoRecorder from './VideoRecorder';

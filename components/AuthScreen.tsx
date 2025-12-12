@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserRole } from '../types';
+import { UserRole } from '../../types';
 import { ArrowLeft, User, Lock, Building, Phone, AlertTriangle, Loader2, CheckCircle, Mail, Key, Sparkles } from 'lucide-react';
 import { useEmergencySystem } from '../contexts/EmergencyContext';
 
@@ -33,9 +33,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
     setError('');
     setIsLoading(true);
 
-    setTimeout(() => {
-        const success = loginUser(phone, role);
+    try {
+        // Critical Fix: Properly await the async loginUser function
+        const success = await loginUser(phone, role);
+        
         setIsLoading(false);
+        
         if (success) {
           if (navigator.vibrate) navigator.vibrate(50);
           onLoginSuccess(role);
@@ -43,7 +46,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
           if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
           setError(role === 'general' ? 'User not found. Try 9999999999' : 'Hospital ID/Email not found. Try admin@hospital.com');
         }
-    }, 1000);
+    } catch (e) {
+        setIsLoading(false);
+        console.error("Login error", e);
+        setError("An unexpected error occurred. Please try again.");
+    }
   };
 
   const fillDemoCredentials = () => {
@@ -176,13 +183,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
         <div className="flex bg-black/10 p-1 rounded-full mb-8">
            <button 
              onClick={() => setRole('general')}
-             className={`px-6 py-2 rounded-full text-sm font-bold transition-all ${isGeneral ? 'bg-emergency text-white shadow-lg' : 'text-gray-500'}`}
+             className={`px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${isGeneral ? 'bg-emergency text-white shadow-lg' : 'text-gray-500'}`}
            >
              User Login
            </button>
            <button 
              onClick={() => setRole('hospital')}
-             className={`px-6 py-2 rounded-full text-sm font-bold transition-all ${!isGeneral ? 'bg-hospital-primary text-white shadow-lg' : 'text-gray-500'}`}
+             className={`px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${!isGeneral ? 'bg-hospital-primary text-white shadow-lg' : 'text-gray-500'}`}
            >
              Hospital Staff
            </button>
@@ -236,6 +243,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
                   placeholder={isGeneral ? "9999999999" : "admin@hospital.com"}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                 />
               </div>
             </div>
@@ -258,6 +266,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                 />
               </div>
             </div>

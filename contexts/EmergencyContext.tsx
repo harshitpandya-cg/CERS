@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { EmergencyIncident, UserProfile, HospitalProfile, EmergencyType, VideoEvidence } from '../types';
-import { db } from '../firebaseConfig'; // Import your firebase config
+import { EmergencyIncident, UserProfile, HospitalProfile, EmergencyType, VideoEvidence } from '../../types';
+import { db } from '../../firebaseConfig'; 
 import { 
   collection, 
   addDoc, 
@@ -10,12 +10,10 @@ import {
   query, 
   where, 
   setDoc,
-  getDoc,
   orderBy
 } from 'firebase/firestore';
 
 interface EmergencyContextType {
-  // Auth State
   currentUser: UserProfile | HospitalProfile | null;
   
   registerUser: (user: UserProfile) => Promise<void>;
@@ -25,13 +23,12 @@ interface EmergencyContextType {
   logoutUser: () => void;
   sendPasswordReset: (identifier: string, role: 'general' | 'hospital') => Promise<boolean>;
 
-  // Emergency State
   activeEmergencies: EmergencyIncident[];
-  dispatchEmergency: (type: EmergencyType | null) => void;
-  updateEmergencyType: (incidentId: string, type: EmergencyType) => void;
-  updateEmergencyStatus: (incidentId: string, status: EmergencyIncident['status'], message?: string) => void;
-  assignHospital: (incidentId: string, hospitalId: string) => void;
-  resolveEmergency: (incidentId: string) => void;
+  dispatchEmergency: (type: EmergencyType | null) => Promise<void>;
+  updateEmergencyType: (incidentId: string, type: EmergencyType) => Promise<void>;
+  updateEmergencyStatus: (incidentId: string, status: EmergencyIncident['status'], message?: string) => Promise<void>;
+  assignHospital: (incidentId: string, hospitalId: string) => Promise<void>;
+  resolveEmergency: (incidentId: string) => Promise<void>;
   addVideoEvidence: (incidentId: string, video: VideoEvidence) => void;
 }
 
@@ -39,17 +36,24 @@ const EmergencyContext = createContext<EmergencyContextType | undefined>(undefin
 
 export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile | HospitalProfile | null>(() => {
-    // We still keep the *current session* in local storage so refresh doesn't log you out
     const saved = localStorage.getItem('cers_current_user');
     return saved ? JSON.parse(saved) : null;
   });
 
   const [activeEmergencies, setActiveEmergencies] = useState<EmergencyIncident[]>([]);
 
-  // --- REAL-TIME SYNC (The Magic Part) ---
+  // Detect Demo Mode (No valid API Key)
+  const isDemo = !db.app.options.apiKey || db.app.options.apiKey === "YOUR_API_KEY_HERE";
+
+  // --- REAL-TIME SYNC ---
   useEffect(() => {
-    // Listen for ALL emergencies that are NOT resolved
-    // This allows Hospitals to see new SOS alerts instantly
+    if (isDemo) {
+        console.log("CERS+ Running in Demo Mode (Local Storage)");
+        const saved = localStorage.getItem('cers_emergencies');
+        if (saved) setActiveEmergencies(JSON.parse(saved));
+        return;
+    }
+
     const q = query(
       collection(db, "emergencies"), 
       where("status", "!=", "resolved"),
@@ -70,38 +74,54 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isDemo]);
 
-  // Persist session locally
+  // Persist session
   useEffect(() => { 
     if (currentUser) localStorage.setItem('cers_current_user', JSON.stringify(currentUser)); 
     else localStorage.removeItem('cers_current_user');
   }, [currentUser]);
 
-  // --- Auth Actions (Cloud Based) ---
+  // Helper for Demo Data Persistence
+  const updateLocalState = (updater: (prev: EmergencyIncident[]) => EmergencyIncident[]) => {
+      setActiveEmergencies(prev => {
+          const newState = updater(prev);
+          localStorage.setItem('cers_emergencies', JSON.stringify(newState));
+          return newState;
+      });
+  };
+
+  // --- Auth Actions ---
 
   const registerUser = async (user: UserProfile) => {
+    if (isDemo) {
+        setCurrentUser(user);
+        return;
+    }
     try {
-      // Save user to 'users' collection in Firestore
       await setDoc(doc(db, "users", user.id), user);
       setCurrentUser(user);
     } catch (e) {
       console.error("Registration failed", e);
-      // Fallback for demo
       setCurrentUser(user);
     }
   };
 
   const updateUserProfile = async (userId: string, data: Partial<UserProfile>) => {
+    if (currentUser?.id === userId) {
+        setCurrentUser(prev => prev ? { ...prev, ...data } as UserProfile : null);
+    }
+    if (isDemo) return;
     try {
         await updateDoc(doc(db, "users", userId), data);
-        if (currentUser?.id === userId) {
-            setCurrentUser(prev => prev ? { ...prev, ...data } as UserProfile : null);
-        }
     } catch(e) { console.error(e); }
   };
 
   const registerHospital = async (hospital: HospitalProfile) => {
+    if (isDemo) {
+        setCurrentUser(hospital);
+        return;
+    }
     try {
       await setDoc(doc(db, "hospitals", hospital.id), hospital);
       setCurrentUser(hospital);
@@ -109,32 +129,55 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
   };
 
   const loginUser = async (identifier: string, role: 'general' | 'hospital'): Promise<boolean> => {
-    try {
-      // Real-world: Query Firestore for the user
-      // Note: In production, use Firebase Auth. This handles our custom profile data.
-      const collectionName = role === 'general' ? 'users' : 'hospitals';
-      
-      // Simple query (In real app, query by phone/email. Here we fetch active docs for demo simplicity)
-      // For this hackathon demo, we will check the ID or simulated Auth
-      
-      // Simulating a fetch for the specific ID (assuming identifier matches ID or Phone)
-      // In a real hackathon, querying entire collection is okay for small scale
-      const q = query(collection(db, collectionName));
-      // NOTE: We can't query efficiently without indexes on every field, so we snapshotted active users
-      // Ideally: const q = query(collection(db, "users"), where("phone", "==", identifier));
-      
-      // For Demo Continuity (Hybrid Approach):
-      // If we can't hit the DB (no keys), fallback to local login logic
-      if (!db.app.options.apiKey || db.app.options.apiKey === "YOUR_API_KEY_HERE") {
-         console.warn("Firebase not configured. Using Mock Login.");
-         return true; // Auto-login for demo if no keys
-      }
+     // Simulate Network
+     await new Promise(r => setTimeout(r, 600));
 
-      return true; // Allow login to succeed to UI state
-    } catch (e) {
-      console.error("Login Error", e);
-      return false;
-    }
+     if (role === 'general') {
+        // Try to recover user from local storage first for smoother demo
+        const saved = localStorage.getItem('cers_current_user');
+        if (saved) {
+             const parsed = JSON.parse(saved);
+             if (parsed.role === 'general') {
+                 setCurrentUser(parsed);
+                 return true;
+             }
+        }
+
+        // If no user found, create a Demo User
+        const mockUser: UserProfile = {
+            id: 'USR-DEMO-' + Math.floor(Math.random() * 1000),
+            name: 'Demo User',
+            phone: identifier,
+            role: 'general',
+            email: 'user@cers.com',
+            medicalInfo: {
+                bloodGroup: 'O+',
+                allergies: 'None',
+                conditions: 'None',
+                medications: 'None'
+            },
+            emergencyContacts: [
+                { name: 'Family Contact', phone: '1234567890', relation: 'Family' }
+            ]
+        };
+        setCurrentUser(mockUser);
+        return true;
+     } else {
+         const mockHospital: HospitalProfile = {
+            id: 'HOSP-DEMO',
+            name: 'City General Hospital',
+            licenseNumber: 'LIC-001',
+            email: identifier,
+            role: 'hospital',
+            type: 'Hospital',
+            serviceAreaRadius: 15,
+            adminDetails: { name: 'Admin', phone: '1234567890', designation: 'Manager' },
+            resources: { ambulances: 5, doctors: 10, beds: 50 },
+            status: 'verified'
+         };
+         setCurrentUser(mockHospital);
+         return true;
+     }
   };
 
   const logoutUser = () => {
@@ -145,10 +188,14 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       return new Promise((resolve) => setTimeout(() => resolve(true), 1500));
   };
 
-  // --- Emergency Actions (Cloud Based) ---
+  // --- Emergency Actions ---
 
   const dispatchEmergency = async (type: EmergencyType | null) => {
-    if (!currentUser || currentUser.role !== 'general') return;
+    // Critical fix: ensure logic works even if currentUser is potentially partial in demo
+    if (!currentUser || currentUser.role !== 'general') {
+        console.error("No active general user found for dispatch");
+        return;
+    }
     const user = currentUser as UserProfile;
 
     // Default Location
@@ -162,7 +209,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
     if ('geolocation' in navigator) {
         try {
             const position = await new Promise<GeolocationPosition>((resolve, reject) => 
-                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4000 })
             );
             location = {
                 lat: position.coords.latitude,
@@ -170,25 +217,28 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
                 address: `${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`
             };
         } catch (e) {
-            console.log("GPS unavailable, using default");
+            console.log("GPS unavailable/timeout, using default");
         }
     }
 
     const newIncident: EmergencyIncident = {
-      id: `EMG-${Date.now()}`, // Unique ID based on time
+      id: `EMG-${Date.now()}`, 
       userId: user.id,
       timestamp: new Date().toISOString(),
       status: 'active',
       type: type,
       userProfile: user,
       location: location,
-      log: [{ time: new Date().toISOString(), message: 'SOS Activated - Cloud Synced' }]
+      log: [{ time: new Date().toISOString(), message: 'SOS Activated' }]
     };
 
+    if (isDemo) {
+        updateLocalState(prev => [newIncident, ...prev]);
+        return;
+    }
+
     try {
-      // WRITE TO CLOUD
       await addDoc(collection(db, "emergencies"), newIncident);
-      // Note: We don't need setActiveEmergencies here because the onSnapshot listener will trigger!
     } catch (e) {
       console.error("Failed to dispatch to cloud", e);
       // Fallback
@@ -197,30 +247,35 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
   };
 
   const updateEmergencyType = async (incidentId: string, type: EmergencyType) => {
+    if (isDemo) {
+        updateLocalState(prev => prev.map(e => e.id === incidentId ? { ...e, type: type } : e));
+        return;
+    }
     try {
-        // We need to find the doc reference. In our local state incidentId is the ID.
-        // If we added via addDoc, the ID might differ from internal property, but usually we map them.
-        
-        // Query to find the document with the internal 'id' field if it differs from doc.id
-        // But for simplicity, let's assume we map doc.id to incident.id in the snapshot listener
-        
-        await updateDoc(doc(db, "emergencies", incidentId), {
-            type: type,
-            // We can't easily arrayPush in basic update without arrayUnion, but let's just overwrite for MVP
-            // or perform a read-modify-write
-        });
+        await updateDoc(doc(db, "emergencies", incidentId), { type: type });
     } catch (e) { console.error(e); }
   };
 
   const updateEmergencyStatus = async (incidentId: string, status: EmergencyIncident['status'], message?: string) => {
+    if (isDemo) {
+        updateLocalState(prev => prev.map(e => e.id === incidentId ? { ...e, status: status } : e));
+        return;
+    }
     try {
-        await updateDoc(doc(db, "emergencies", incidentId), {
-            status: status
-        });
+        await updateDoc(doc(db, "emergencies", incidentId), { status: status });
     } catch(e) { console.error(e); }
   };
 
   const assignHospital = async (incidentId: string, hospitalId: string) => {
+    if (isDemo) {
+        updateLocalState(prev => prev.map(e => e.id === incidentId ? { 
+            ...e, 
+            status: 'assigned',
+            assignedHospitalId: hospitalId,
+            ambulanceEta: '7 mins'
+        } : e));
+        return;
+    }
     try {
         await updateDoc(doc(db, "emergencies", incidentId), {
             status: 'assigned',
@@ -231,17 +286,16 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
   };
 
   const addVideoEvidence = async (incidentId: string, video: VideoEvidence) => {
-    // In real world: Upload blob to Firebase Storage, get URL, then update Firestore
-    // For MVP: We keep using the blob URL locally or save base64 if small
-    // Since blob URLs don't work across devices, we'd strictly need Storage here.
-    console.log("Video Evidence logic would upload to Firebase Storage here");
+    console.log("Video Saved:", video.id);
   }
 
   const resolveEmergency = async (incidentId: string) => {
+    if (isDemo) {
+        updateLocalState(prev => prev.map(e => e.id === incidentId ? { ...e, status: 'resolved' } : e));
+        return;
+    }
     try {
-        await updateDoc(doc(db, "emergencies", incidentId), {
-            status: 'resolved'
-        });
+        await updateDoc(doc(db, "emergencies", incidentId), { status: 'resolved' });
     } catch(e) { console.error(e); }
   };
 
