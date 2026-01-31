@@ -1,9 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, CheckCircle, Navigation } from 'lucide-react';
 
-const AmbulanceCountdown: React.FC = () => {
-  const [secondsRemaining, setSecondsRemaining] = useState(322); // Start at 5m 22s for demo
+// 1. Add an interface to accept the real ETA from the database
+interface AmbulanceCountdownProps {
+  initialEtaString?: string; // e.g., "6 min"
+}
+
+const AmbulanceCountdown: React.FC<AmbulanceCountdownProps> = ({ initialEtaString = "5 min" }) => {
+  // 2. Extract the number from the string and convert to total seconds
+  const getInitialSeconds = (etaStr: string) => {
+    const mins = parseInt(etaStr) || 5; 
+    return mins * 60;
+  };
+
+  const [totalInitialSeconds] = useState(getInitialSeconds(initialEtaString));
+  const [secondsRemaining, setSecondsRemaining] = useState(getInitialSeconds(initialEtaString));
   const [isArrived, setIsArrived] = useState(false);
+
+  // 3. Reset the timer if the hospital updates the ETA live
+  useEffect(() => {
+    const newSeconds = getInitialSeconds(initialEtaString);
+    setSecondsRemaining(newSeconds);
+    setIsArrived(newSeconds <= 0);
+  }, [initialEtaString]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -24,7 +43,7 @@ const AmbulanceCountdown: React.FC = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Determine styles based on time
+  // Styles logic (Keep your existing color logic...)
   let colorClass = 'text-white';
   let bgClass = 'bg-[#2f3640]';
   let borderClass = 'border-gray-600';
@@ -32,28 +51,18 @@ const AmbulanceCountdown: React.FC = () => {
   let statusText = 'AMBULANCE ETA';
 
   if (isArrived) {
-    colorClass = 'text-white';
     bgClass = 'bg-green-600';
     borderClass = 'border-green-400';
-    pulseClass = 'animate-bounce';
     statusText = 'AMBULANCE ARRIVED';
-  } else if (secondsRemaining < 120) { // < 2 min
-    colorClass = 'text-white';
+    pulseClass = 'animate-bounce';
+  } else if (secondsRemaining < 120) {
     bgClass = 'bg-green-600';
-    borderClass = 'border-green-400';
-    pulseClass = 'animate-pulse';
     statusText = 'ARRIVING NOW';
-  } else if (secondsRemaining < 300) { // 2-5 min
-    colorClass = 'text-white';
-    bgClass = 'bg-emergency';
-    borderClass = 'border-red-400';
     pulseClass = 'animate-pulse';
+  } else if (secondsRemaining < 300) {
+    bgClass = 'bg-emergency'; // Assuming bg-emergency is defined in your tailwind config
     statusText = 'ALMOST THERE';
-  } else if (secondsRemaining < 600) { // 5-10 min
-    colorClass = 'text-warning';
-    bgClass = 'bg-[#2f3640]';
-    borderClass = 'border-warning';
-    statusText = 'APPROACHING';
+    pulseClass = 'animate-pulse';
   }
 
   return (
@@ -66,21 +75,14 @@ const AmbulanceCountdown: React.FC = () => {
         <div className={`text-5xl font-black font-mono tracking-tighter ${colorClass} mb-2`}>
           {formatTime(secondsRemaining)}
         </div>
-        {!isArrived && (
-          <div className="flex items-center justify-between w-full max-w-[200px] text-xs opacity-70 font-medium border-t border-white/20 pt-2">
-             <span className="flex items-center gap-1"><Navigation size={10}/> 3.1 km</span>
-             <span>•</span>
-             <span>45 km/h</span>
-          </div>
-        )}
       </div>
       
-      {/* Progress Bar background */}
+      {/* Dynamic Progress Bar based on real database time */}
       {!isArrived && (
           <div className="absolute bottom-0 left-0 h-1 bg-white/10 w-full">
             <div 
                 className="h-full bg-white/50 transition-all duration-1000 ease-linear" 
-                style={{ width: `${(secondsRemaining / 322) * 100}%` }} 
+                style={{ width: `${(secondsRemaining / totalInitialSeconds) * 100}%` }} 
             />
           </div>
       )}
@@ -88,4 +90,4 @@ const AmbulanceCountdown: React.FC = () => {
   );
 };
 
-export default AmbulanceCountdown;
+export default AmbulanceCountdown;  

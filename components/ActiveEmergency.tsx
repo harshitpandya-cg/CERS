@@ -238,12 +238,46 @@ const ActiveEmergency: React.FC<ActiveEmergencyProps> = ({ type, onClose, onUpda
         )}
 
         <div className="p-4 space-y-4">
-           {/* Live Map & Countdown Card - Only show full details if video is collapsed or not showing */}
-           <div className={`transition-opacity duration-500 ${!videoCollapsed && showVideo ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-               <TrackingMap location={currentEmergency?.location} />
-               <AmbulanceCountdown />
-           </div>
+  {/* Container opacity logic remains for video overlay consistency */}
+  <div className={`transition-opacity duration-500 ${!videoCollapsed && showVideo ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+    
+    {/* 1. Always show the map so the user sees their active signal */}
+    <TrackingMap location={currentEmergency?.location} />
+
+    {/* 2. Conditional ETA Logic */}
+    <div className="mt-4">
+  {currentEmergency?.ambulanceEta ? (
+    // SHOW: If the hospital has accepted and provided a time
+    <div className="animate-in fade-in slide-in-from-top duration-500">
+      <div className="bg-indigo-600/10 border border-indigo-500/30 p-4 rounded-2xl">
+        <div className="flex justify-between items-center mb-4">
+          <span className="text-indigo-400 text-xs font-black uppercase tracking-widest">Ambulance Status</span>
+          <span className="bg-indigo-500 text-white text-[10px] px-2 py-1 rounded-full font-bold animate-pulse">EN ROUTE</span>
         </div>
+        
+        {/* 🔴 NEW: Passing the real database ETA string to the countdown component */}
+        <AmbulanceCountdown initialEtaString={currentEmergency.ambulanceEta} />
+        
+        <p className="mt-3 text-center text-indigo-300 font-bold italic">
+          Hospital Confirmed: {currentEmergency.ambulanceEta}
+        </p>
+      </div>
+    </div>
+  ) : (
+    // HIDE: Show "Waiting" state if ETA is not yet available
+    <div className="bg-slate-800/40 border border-slate-700 p-6 rounded-2xl flex flex-col items-center justify-center gap-3">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 bg-yellow-500 rounded-full animate-ping" />
+        <p className="text-slate-300 font-bold text-sm uppercase tracking-tight">Signal Received by Dispatch</p>
+      </div>
+      <p className="text-slate-500 text-xs text-center">
+        Waiting for a nearby hospital to confirm an ambulance and provide an ETA...
+      </p>
+    </div>
+  )}
+</div>
+  </div>
+</div>
 
         {/* Action Grid */}
         <div className="grid grid-cols-3 gap-3 px-4 mb-6">
