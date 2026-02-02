@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { UserRole } from '../types';
-import { ArrowLeft, User, Lock, Building, Phone, AlertTriangle, Loader2, CheckCircle, Mail, Key, Sparkles } from 'lucide-react';
+import { 
+  ArrowLeft, User, Lock, Building, Phone, 
+  AlertTriangle, Loader2, CheckCircle, Mail, 
+  Key, Sparkles, X, XCircle 
+} from 'lucide-react';
 import { useEmergencySystem } from '../contexts/EmergencyContext';
 
 interface AuthScreenProps {
@@ -9,47 +13,87 @@ interface AuthScreenProps {
   onGoToSignUp: () => void;
 }
 
+// --- 🟢 Custom Pop-up Toast Component ---
+const NotificationToast = ({ 
+  message, 
+  type, 
+  onClose 
+}: { 
+  message: string, 
+  type: 'error' | 'success', 
+  onClose: () => void 
+}) => (
+  <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] w-full max-w-sm animate-in slide-in-from-top duration-300">
+    <div className={`mx-4 p-4 rounded-2xl shadow-2xl flex items-center gap-3 font-bold border-b-4 ${
+      type === 'success' ? 'bg-green-600 border-green-800' : 'bg-red-600 border-red-800'
+    } text-white`}>
+      {type === 'success' ? <CheckCircle size={24} /> : <XCircle size={24} />}
+      <span className="flex-1 text-sm">{message}</span>
+      <button onClick={onClose} className="p-1 hover:bg-black/10 rounded-lg">
+        <X size={20} />
+      </button>
+    </div>
+  </div>
+);
+
 const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToSignUp }) => {
-  const { loginUser, sendPasswordReset } = useEmergencySystem();
+  const { loginUser, initiatePasswordReset } = useEmergencySystem();
+  const [failedAttempts, setFailedAttempts] = useState(0);
   
   const [view, setView] = useState<'login' | 'forgot-password'>('login');
   const [role, setRole] = useState<'general' | 'hospital'>('general');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   
-  // Forgot Password State
   const [resetInput, setResetInput] = useState('');
-
-  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
+  // 🟢 Custom Pop-up State
+  const [notification, setNotification] = useState<{msg: string, type: 'error' | 'success'} | null>(null);
+
+  // 🟢 Helper to trigger Pop-up instead of alert()
+  const showPopup = (msg: string, type: 'error' | 'success' = 'error') => {
+    setNotification({ msg, type });
+    // Auto-hide after 4 seconds
+    setTimeout(() => setNotification(null), 4000);
+  };
+
   const handleLogin = async () => {
     if (!phone || !password) {
-        setError('Please enter all credentials');
+        showPopup('Please enter all credentials'); // 🟢 Replaced alert
         return;
     }
 
-    setError('');
     setIsLoading(true);
 
     try {
-        // Critical Fix: Properly await the async loginUser function
-        const success = await loginUser(phone, role);
-        
+        const success = await loginUser(phone, role, password);
         setIsLoading(false);
         
         if (success) {
+          setFailedAttempts(0);
           if (navigator.vibrate) navigator.vibrate(50);
           onLoginSuccess(role);
         } else {
+          // 🟢 Handle failures with Pop-ups instead of alerts
+          const newCount = failedAttempts + 1;
+          setFailedAttempts(newCount);
+
           if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-          setError(role === 'general' ? 'User not found. Try 9999999999' : 'Hospital ID/Email not found. Try admin@hospital.com');
+
+          if (newCount >= 3) {
+            showPopup("🚫 Too many failed attempts. Please reset your password.");
+          } else {
+            // Checks for specific role failures
+            showPopup(role === 'general' 
+              ? 'User not found. Please sign up first.' 
+              : 'Hospital not registered or incorrect credentials.');
+          }
         }
     } catch (e) {
         setIsLoading(false);
-        console.error("Login error", e);
-        setError("An unexpected error occurred. Please try again.");
+        showPopup("An unexpected error occurred. Please try again.");
     }
   };
 
@@ -61,29 +105,15 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
           setPhone('admin@hospital.com');
           setPassword('admin');
       }
-      setError('');
   };
 
-  const handleResetPassword = async () => {
-      if (!resetInput) {
-          setError(`Please enter your ${isGeneral ? 'mobile number' : 'email'}`);
-          return;
-      }
-      setIsLoading(true);
-      setError('');
-      
-      const success = await sendPasswordReset(resetInput, role);
-      setIsLoading(false);
-      
-      if (success) {
-          setResetSent(true);
-      } else {
-          setError('Could not find account. Please verify details.');
-      }
+  const handleResetPassword = () => {
+    initiatePasswordReset();
+    showPopup("Password reset page opened in a new tab", "success"); // 🟢 Replaced alert
+    setView('login'); 
   };
 
   const isGeneral = role === 'general';
-  const themeColor = isGeneral ? 'emergency' : 'hospital-primary';
   const bgClass = isGeneral ? 'bg-emergency' : 'bg-hospital-primary';
   const textClass = isGeneral ? 'text-emergency' : 'text-hospital-primary';
 
@@ -91,8 +121,17 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
   if (view === 'forgot-password') {
       return (
         <div className={`min-h-screen flex flex-col ${isGeneral ? 'bg-charcoal text-white' : 'bg-hospital-bg text-hospital-text'}`}>
+            {/* Pop-up Layer */}
+            {notification && (
+              <NotificationToast 
+                message={notification.msg} 
+                type={notification.type} 
+                onClose={() => setNotification(null)} 
+              />
+            )}
+
             <div className="p-6">
-                <button onClick={() => { setView('login'); setResetSent(false); setError(''); setResetInput(''); }} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
+                <button onClick={() => { setView('login'); setResetSent(false); setResetInput(''); }} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
                     <ArrowLeft size={20} /> Back to Login
                 </button>
             </div>
@@ -106,15 +145,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
                     {!resetSent ? (
                         <>
                             <h2 className="text-2xl font-bold text-white mb-2">Forgot Password?</h2>
-                            <p className="text-gray-400 text-sm mb-8">Enter your registered {isGeneral ? 'phone number' : 'email'} and we'll send you instructions to reset it.</p>
+                            <p className="text-gray-400 text-sm mb-8">Enter your registered {isGeneral ? 'phone number' : 'email'} to reset.</p>
                             
-                            {error && (
-                              <div className="bg-red-500/10 border border-red-500/50 p-3 rounded-xl flex items-center gap-2 mb-4 text-left">
-                                 <AlertTriangle className="text-red-500 shrink-0" size={16} />
-                                 <span className="text-xs text-red-500 font-bold">{error}</span>
-                              </div>
-                            )}
-
                             <div className="space-y-6 text-left">
                                 <div>
                                     <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
@@ -149,9 +181,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
                                 <CheckCircle size={64} className="text-green-500" />
                              </div>
                              <h2 className="text-2xl font-bold text-white mb-2">Check your Inbox</h2>
-                             <p className="text-gray-400 text-sm mb-8">
-                               We have sent password reset instructions to <span className="text-white font-bold">{resetInput}</span>.
-                             </p>
+                             <p className="text-gray-400 text-sm mb-8">Instructions sent to <span className="text-white font-bold">{resetInput}</span>.</p>
                              <button
                                 onClick={() => setView('login')}
                                 className="w-full py-4 rounded-xl font-bold text-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
@@ -170,6 +200,15 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
   return (
     <div className={`min-h-screen flex flex-col ${isGeneral ? 'bg-charcoal text-white' : 'bg-hospital-bg text-hospital-text'}`}>
       
+      {/* 🟢 Pop-up Notification Layer */}
+      {notification && (
+        <NotificationToast 
+          message={notification.msg} 
+          type={notification.type} 
+          onClose={() => setNotification(null)} 
+        />
+      )}
+
       {/* Header */}
       <div className="p-6">
         <button onClick={onBack} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
@@ -200,27 +239,16 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
             {isGeneral ? <User size={40} className="text-white" /> : <Building size={40} className="text-white" />}
           </div>
           <h1 className="text-3xl font-bold mb-2">{isGeneral ? 'Welcome Back' : 'Responder Portal'}</h1>
-          <p className="text-gray-500">{isGeneral ? 'Log in to access your safety network' : 'Secure access for authorized personnel only'}</p>
+          <p className="text-gray-500">{isGeneral ? 'Log in for safety' : 'Authorized personnel only'}</p>
         </div>
 
         <div className={`w-full ${isGeneral ? 'bg-[#2f3640]' : 'bg-white'} p-8 rounded-3xl shadow-xl transition-colors duration-300`}>
           <div className="space-y-6">
             
-            {/* Error Message */}
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/50 p-3 rounded-xl flex items-start gap-3 animate-in slide-in-from-top duration-300">
-                 <AlertTriangle className="text-red-500 shrink-0" size={20} />
-                 <div className="text-sm text-red-500">
-                    <p className="font-bold">Login Failed</p>
-                    <p>{error}</p>
-                 </div>
-              </div>
-            )}
-
             <div>
               <div className="flex justify-between items-center mb-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
-                    {isGeneral ? 'Mobile Number' : 'Hospital ID / Email'}
+                    {isGeneral ? 'Mobile Number' : 'Email'}
                   </label>
                   <button 
                     onClick={fillDemoCredentials} 
@@ -291,7 +319,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBack, onLoginSuccess, onGoToS
             
             {isGeneral && (
               <div className="pt-4 border-t border-gray-700/50">
-                 <p className="text-gray-500 text-sm mb-2">Don't have an account?</p>
+                 <p className="text-gray-500 text-sm mb-2">New here?</p>
                  <button 
                    onClick={onGoToSignUp}
                    className="text-white font-bold hover:underline"

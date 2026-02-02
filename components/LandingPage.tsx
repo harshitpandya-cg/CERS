@@ -1,8 +1,9 @@
 import React from 'react';
-import { User, Building, LogIn, Shield, HeartPulse, Siren } from 'lucide-react';
+import { User, Building, Shield, HeartPulse, Siren, Settings } from 'lucide-react';
 
 interface LandingPageProps {
-  onNavigate: (path: 'signup-general' | 'signup-hospital' | 'login') => void;
+  // 🟢 Added 'admin-login' to supported paths
+  onNavigate: (path: 'signup-general' | 'signup-hospital' | 'login' | 'admin-login') => void;
 }
 
 const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
@@ -79,9 +80,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
          </div>
       </div>
 
-      <div className="mt-12 text-center text-gray-600 text-xs z-10">
-        © 2024 CERS+ Emergency Response Network. All rights reserved.
-      </div>
+      {/* Footer Area */}
+
+<div className="mt-12 flex flex-col items-center gap-4 z-10">
+  <div className="text-gray-600 text-xs">
+    © 2024 CERS+ Emergency Response Network. All rights reserved.
+  </div>
+  
+  {/* 🟢 Color changed to text-slate-500 for better visibility */}
+  <button 
+    onClick={() => onNavigate('admin-login')} 
+    className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors uppercase tracking-widest font-bold"
+  >
+    <Settings size={10} /> System Administration
+  </button>
+</div>
     </div>
   );
 };
