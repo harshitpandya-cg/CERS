@@ -7,7 +7,7 @@ import { AppTab, EmergencyType, UserProfile } from '../types'
 import {
   MessageSquare, User, Phone, Settings, Shield,
   ChevronRight, Bell, Moon, Lock, ToggleLeft, ToggleRight,
-  Smartphone, Edit2, Save, X, Check, Download, Home, ShieldCheck
+  Smartphone, Edit2, Save, X, Check, CheckCircle, Download, Home, ShieldCheck
 } from 'lucide-react';
 import { useEmergencySystem } from '../contexts/EmergencyContext';
 import FaceScanner from './FaceScanner';
@@ -194,34 +194,6 @@ const GeneralApp: React.FC<GeneralAppProps> = ({ onLogout }) => {
       <div className="flex flex-col h-full overflow-y-auto no-scrollbar relative">
         <div className="flex-1 flex flex-col items-center justify-center min-h-[400px]">
           <SOSButton onActivate={handleSOSClick} guardianNumber={guardianNumber} />
-        </div>
-
-        {/* Insurance Widget */}
-        <div className="px-6 mb-8">
-           <div className="bg-gradient-to-br from-blue-600 to-indigo-800 rounded-3xl p-6 border border-blue-400/30 shadow-xl shadow-blue-900/20 relative overflow-hidden group transition-all hover:-translate-y-1">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                 <Shield size={80} className="text-white" />
-              </div>
-              <div className="relative z-10">
-                 <div className="flex items-center gap-2 mb-2">
-                    <span className="bg-white/20 text-white text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full">Protection Plan</span>
-                    <span className="flex items-center gap-1 text-blue-200 text-[10px] font-bold uppercase tracking-wider">
-                       <CheckCircle size={10} /> Active
-                    </span>
-                 </div>
-                 <h4 className="text-lg font-black text-white mb-1 tracking-tight">Emergency Insurance Status</h4>
-                 <p className="text-blue-100 text-xs mb-6 font-medium">Your current policy: <span className="text-white font-bold">Family Emergency Shield</span></p>
-                 <button 
-                   onClick={() => {
-                     window.history.pushState({}, '', '/insurance/dashboard');
-                     window.dispatchEvent(new PopStateEvent('popstate'));
-                   }}
-                   className="w-full bg-white text-blue-700 py-3 rounded-2xl font-black text-xs hover:bg-blue-50 transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
-                 >
-                    VIEW INSURANCE DASHBOARD <ChevronRight size={14} />
-                 </button>
-              </div>
-           </div>
         </div>
 
         <div className="px-6 pb-6">
