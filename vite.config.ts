@@ -10,10 +10,6 @@ export default defineConfig({
 
   resolve: {
     dedupe: ['react', 'react-dom'],
-    alias: {
-      'react': 'c:/Users/dhvan/Desktop/CERS-SU/CERS/node_modules/react',
-      'react-dom': 'c:/Users/dhvan/Desktop/CERS-SU/CERS/node_modules/react-dom',
-    },
   },
 
   optimizeDeps: {

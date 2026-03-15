@@ -151,7 +151,7 @@ const AppContent: React.FC = () => {
   const [modalMessage, setModalMessage] = useState("");
 
   const [isAdminAuth, setIsAdminAuth] = useState(false);
-  const { logoutUser, currentUser } = useEmergencySystem();
+  const { logoutUser, currentUser, activeEmergencies } = useEmergencySystem();
 
   const isResetPath = window.location.pathname === '/reset-password';
   const isAdminPath = window.location.pathname === '/admin-panel';
@@ -254,8 +254,6 @@ const AppContent: React.FC = () => {
   };
 
   // --- Render Logic ---
-
-  const { currentUser, activeEmergencies } = useEmergencySystem();
 
   if (isResetPath) {
     return <ResetPassword />;
