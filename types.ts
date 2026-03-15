@@ -11,6 +11,7 @@ export interface UserProfile {
   role: 'general';
   dob?: string;
   gender?: string;
+  faceDescriptor?: number[]; // Added for Face ID
   medicalInfo?: {
     bloodGroup: string;
     allergies: string;
@@ -36,6 +37,7 @@ export interface HospitalProfile {
   email: string;
   password?: string;
   role: 'hospital';
+  location?: LocationData; // 🟢 Added for auto-ETA
   serviceAreaRadius: number;
   type: 'Hospital' | 'Clinic' | 'Ambulance' | 'Government';
   adminDetails: {
@@ -69,8 +71,8 @@ export interface EmergencyIncident {
   userId: string;
   timestamp: string;
   status: 'active' | 'assigned' | 'dispatched' | 'arrived' | 'resolved';
-  type: EmergencyType | null; 
-  userProfile: UserProfile; 
+  type: EmergencyType | null;
+  userProfile: UserProfile;
   location: LocationData;
   log: {
     time: string;
@@ -85,6 +87,9 @@ export interface EmergencyIncident {
       timestamp: string;
     }
   };
+  assignedDoctor?: string; // 🟢 Added for reporting
+  ambulanceLocation?: LocationData; // 🚑 Added for live tracking
+  hospitalLocation?: LocationData; // 🏥 Added for reference on map
 }
 
 export enum EmergencyCategory {
@@ -96,7 +101,7 @@ export enum EmergencyCategory {
 export interface EmergencyType {
   id: string;
   name: string;
-  icon: string; 
+  icon: string;
   category: EmergencyCategory;
   instructions: string[];
   do: string[];
@@ -107,7 +112,7 @@ export interface EmergencyType {
 export interface Volunteer {
   id: string;
   name: string;
-  distance: string; 
+  distance: string;
   role: 'First Responder' | 'Doctor' | 'Civilian';
   rating: number;
 }

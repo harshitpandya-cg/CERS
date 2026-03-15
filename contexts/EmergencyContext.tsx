@@ -1,28 +1,29 @@
 // @ts-nocheck
-import React, { 
-  createContext, 
-  useContext, 
-  useState, 
-  ReactNode, 
-  useEffect, 
-  useRef 
+import React, {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useEffect,
+  useRef
 } from 'react';
-import { 
-  EmergencyIncident, 
-  UserProfile, 
-  HospitalProfile, 
-  EmergencyType, 
-  VideoEvidence 
+import {
+  EmergencyIncident,
+  UserProfile,
+  HospitalProfile,
+  EmergencyType,
+  VideoEvidence
 } from '../types';
-import { db } from '../firebaseConfig'; 
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  doc, 
-  onSnapshot, 
-  query, 
-  where, 
+import * as faceapi from 'face-api.js';
+import { db } from '../firebaseConfig';
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  doc,
+  onSnapshot,
+  query,
+  where,
   orderBy,
   getDocs,
   runTransaction
@@ -33,13 +34,14 @@ import {
 interface EmergencyContextType {
   // --- Auth & Session State ---
   currentUser: UserProfile | HospitalProfile | null;
-  
+
   // --- Enhanced Security Auth Actions ---
-  registerHospital: (hospital: HospitalProfile & { password: string }) => Promise<void>; 
+  registerHospital: (hospital: HospitalProfile & { password: string }) => Promise<void>;
   updateHospitalStatus: (hospitalId: string, status: 'verified' | 'rejected', reason?: string) => Promise<void>;
-  loginUser: (identifier: string, role: 'general' | 'hospital', password?: string) => Promise<boolean>; 
+  loginUser: (identifier: string, role: 'general' | 'hospital', password?: string) => Promise<boolean>;
+  loginWithFace: (descriptor: Float32Array) => Promise<boolean>;
   logoutUser: () => void;
-  initiatePasswordReset: () => void; 
+  initiatePasswordReset: () => void;
   sendPasswordReset: (phone: string, newPassword: string) => Promise<void>;
 
   // --- Profile Management ---
@@ -48,14 +50,17 @@ interface EmergencyContextType {
 
   // --- Emergency Operations (Live Sync) ---
   activeEmergencies: EmergencyIncident[];
-  dispatchEmergency: (type: EmergencyType | null) => Promise<void>;
+  dispatchEmergency: (type: EmergencyType | null, coords?: { lat: number, lng: number }) => Promise<void>;
   updateEmergencyType: (incidentId: string, type: EmergencyType | null) => Promise<void>;
   updateEmergencyStatus: (incidentId: string, status: EmergencyIncident['status'], message?: string) => Promise<void>;
   assignHospital: (incidentId: string, hospitalId: string, eta: string, extraData?: any) => Promise<boolean>; 
   rejectEmergencyRequest: (incidentId: string, hospitalId: string) => Promise<void>;
+  rejectEmergency: (incidentId: string) => Promise<void>;
   resolveEmergency: (incidentId: string) => Promise<void>;
   addVideoEvidence: (incidentId: string, video: VideoEvidence) => void;
   updateEmergencyLocation: (incidentId: string, lat: number, lng: number) => Promise<void>;
+  updateAmbulanceLocation: (incidentId: string, lat: number, lng: number) => Promise<void>;
+  allHospitals: HospitalProfile[];
 }
 
 const EmergencyContext = createContext<EmergencyContextType | undefined>(undefined);
@@ -64,7 +69,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   const [currentUser, setCurrentUser] = useState<UserProfile | HospitalProfile | null>(() => {
     try {
-      const saved = sessionStorage.getItem('cers_current_user'); 
+      const saved = sessionStorage.getItem('cers_current_user');
       return saved ? JSON.parse(saved) : null;
     } catch (e) {
       return null;
@@ -72,6 +77,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
   });
 
   const [activeEmergencies, setActiveEmergencies] = useState<EmergencyIncident[]>([]);
+  const [allHospitals, setAllHospitals] = useState<HospitalProfile[]>([]);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const [loginAttempts, setLoginAttempts] = useState(0);
 
@@ -96,7 +102,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
 
     try {
       const q = query(
-        collection(db, "emergencies"), 
+        collection(db, "emergencies"),
         where("status", "in", ["active", "assigned", "enroute", "dispatched", "arrived"]),
         orderBy("timestamp", "desc")
       );
@@ -106,7 +112,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
           id: doc.id,
           ...doc.data()
         })) as EmergencyIncident[];
-        
+
         console.log("📡 Cloud Sync: Processing Live Feed...");
         setActiveEmergencies(incidents);
       }, (error) => {
@@ -120,9 +126,29 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
     }
   }, [isDemo]);
 
+  // 🏥 SYNC ALL HOSPITALS
+  useEffect(() => {
+    if (isDemo) return;
+
+    const q = query(
+      collection(db, "hospitals"),
+      where("status", "==", "verified")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const hospitals = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as HospitalProfile[];
+      setAllHospitals(hospitals);
+    });
+
+    return () => unsubscribe();
+  }, [isDemo]);
+
   // Persist session
-  useEffect(() => { 
-    if (currentUser) sessionStorage.setItem('cers_current_user', JSON.stringify(currentUser)); 
+  useEffect(() => {
+    if (currentUser) sessionStorage.setItem('cers_current_user', JSON.stringify(currentUser));
     else sessionStorage.removeItem('cers_current_user');
   }, [currentUser]);
 
@@ -198,7 +224,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       await addDoc(collection(db, "hospitals"), {
         ...hospitalData,
         role: "hospital",
-        status: "pending", 
+        status: "pending",
         createdAt: new Date().toISOString(),
       });
 
@@ -218,12 +244,12 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       if (role === 'general') {
         const q = query(collection(db, "users"), where("phone", "==", identifier));
         const snap = await getDocs(q);
-        if (snap.empty) { 
-          alert("❌ User not registered"); 
-          return false; 
+        if (snap.empty) {
+          alert("❌ User not registered");
+          return false;
         }
         const user = { ...snap.docs[0].data(), id: snap.docs[0].id };
-        setCurrentUser(user);
+        setCurrentUser(user as UserProfile);
         return true;
       }
 
@@ -263,9 +289,65 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
     }
   };
 
+  const loginWithFace = async (descriptor: Float32Array): Promise<boolean> => {
+    try {
+      // 1. Fetch reference images of Dhvanit
+      const img1 = await faceapi.fetchImage('/dhvanit_face_1.jpg');
+      const img2 = await faceapi.fetchImage('/dhvanit_face_2.jpg');
+
+      const det1 = await faceapi.detectSingleFace(img1, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+      const det2 = await faceapi.detectSingleFace(img2, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+
+      let matched = false;
+      const threshold = 0.55;
+
+      const checkMatch = (refDesc?: Float32Array) => {
+        if (!refDesc) return false;
+        let distance = 0;
+        for (let i = 0; i < descriptor.length; i++) {
+          distance += Math.pow(descriptor[i] - refDesc[i], 2);
+        }
+        return Math.sqrt(distance) < threshold;
+      };
+
+      if ((det1 && checkMatch(det1.descriptor)) || (det2 && checkMatch(det2.descriptor))) {
+        matched = true;
+      }
+
+      if (matched) {
+        // Login successful, set user to the first general user or a specific one
+        const q = query(collection(db, "users"), where("role", "==", "general"));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const bestUser = { ...snap.docs[0].data(), id: snap.docs[0].id } as UserProfile;
+          setCurrentUser(bestUser);
+        } else {
+          // Mock user if DB is empty for demo purposes
+          const mockUser = {
+            id: 'user_dhvan',
+            name: 'Dhvanit Kanabar',
+            phone: '9999999999',
+            role: 'general',
+          };
+          setCurrentUser(mockUser as UserProfile);
+        }
+        return true;
+      }
+
+      alert("❌ Face not recognized or registered.");
+      return false;
+    } catch (error) {
+      console.error("Face login error:", error);
+      alert("Error processing face login.");
+      return false;
+    }
+  };
+
+  // --- Session Management ---
+
   const updateHospitalStatus = async (
-    hospitalId: string, 
-    status: 'verified' | 'rejected', 
+    hospitalId: string,
+    status: 'verified' | 'rejected',
     reason?: string
   ) => {
     try {
@@ -273,27 +355,27 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       console.log("Updating hospital ID:", hospitalId);
 
       const hospitalDocRef = doc(db, "hospitals", hospitalId);
-      
-      const updateData: any = { 
+
+      const updateData: any = {
         status: status,
-        updatedAt: new Date().toISOString() 
+        updatedAt: new Date().toISOString()
       };
-      
+
       if (status === 'rejected' && reason) {
         updateData.rejectionReason = reason;
       }
 
       await updateDoc(hospitalDocRef, updateData);
       alert(`✅ Hospital ${status} successfully.`);
-      
+
     } catch (error) {
       console.error("❌ Firestore Update Error:", error);
       alert("❌ Failed to update hospital status.");
     }
   };
 
-  const logoutUser = () => { 
-    setCurrentUser(null); 
+  const logoutUser = () => {
+    setCurrentUser(null);
     localStorage.removeItem('cers_current_user');
     sessionStorage.removeItem('cers_current_user');
     if (isDemo) {
@@ -304,7 +386,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
   // --- Emergency Actions ---
 
   // ✅ UPDATED: Gets real GPS + reverse geocodes to exact area name via OpenStreetMap
-  const dispatchEmergency = async (type: EmergencyType | null) => {
+  const dispatchEmergency = async (type: EmergencyType | null, manualCoords?: { lat: number, lng: number }) => {
     if (!currentUser || currentUser.role !== 'general') return;
 
     // Step 1: Get real GPS coordinates from the device
@@ -345,7 +427,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       }
     };
 
-    const coords = await getLocation();
+    const coords = manualCoords || await getLocation();
     const address = await reverseGeocode(coords.lat, coords.lng);
 
     // Fetch all verified hospitals to broadcast to
@@ -382,7 +464,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
   const resolveEmergency = async (incidentId: string) => {
     updateLocalState(prev => prev.filter(e => e.id !== incidentId));
     if (!isDemo) {
-      await updateDoc(doc(db, "emergencies", incidentId), { 
+      await updateDoc(doc(db, "emergencies", incidentId), {
         status: 'resolved',
         endedAt: new Date().toISOString()
       });
@@ -420,18 +502,12 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
         }
 
         const updatedResponded = { ...data.respondedHospitals } || {};
-        if (updatedResponded[hospitalId]) {
-             updatedResponded[hospitalId] = {
-               status: 'accepted',
-               timestamp: new Date().toISOString()
-             };
-        } else {
-             updatedResponded[hospitalId] = {
-               status: 'accepted',
-               timestamp: new Date().toISOString()
-             };
-        }
+        updatedResponded[hospitalId] = {
+           status: 'accepted',
+           timestamp: new Date().toISOString()
+        };
 
+        // 🛡️ Firestore Sanitization: updateDoc crashes on 'undefined' values
         const updateData: any = { 
           status: 'assigned', 
           assignedHospitalId: hospitalId, 
@@ -440,13 +516,19 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
           ...extraData 
         };
 
-        transaction.update(docRef, updateData);
+        // Filter out undefined values
+        const sanitizedData = Object.fromEntries(
+          Object.entries(updateData).filter(([_, v]) => v !== undefined)
+        );
+
+        transaction.update(docRef, sanitizedData);
         return true;
       });
 
+      console.log(`✅ Incident ${incidentId} assigned successfully.`);
       return success;
     } catch (e) {
-      console.error("Transaction failed: ", e);
+      console.error("❌ Transaction failed: ", e);
       return false;
     }
   };
@@ -458,8 +540,16 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   const updateEmergencyLocation = async (incidentId: string, lat: number, lng: number) => {
     if (!isDemo) {
-      await updateDoc(doc(db, "emergencies", incidentId), { 
-        location: { lat, lng, updatedAt: new Date().toISOString() } 
+      await updateDoc(doc(db, "emergencies", incidentId), {
+        location: { lat, lng, updatedAt: new Date().toISOString() }
+      });
+    }
+  };
+
+  const updateAmbulanceLocation = async (incidentId: string, lat: number, lng: number) => {
+    if (!isDemo) {
+      await updateDoc(doc(db, "emergencies", incidentId), {
+        ambulanceLocation: { lat, lng, updatedAt: new Date().toISOString() }
       });
     }
   };
@@ -500,30 +590,42 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
     }
   };
 
+  const rejectEmergency = async (incidentId: string) => {
+    if (isDemo) {
+      updateLocalState(prev => prev.filter(e => e.id !== incidentId));
+      return;
+    }
+    await updateDoc(doc(db, "emergencies", incidentId), { status: 'rejected' });
+  };
+
   const addVideoEvidence = async (incidentId: string, video: VideoEvidence) => {
     if (!isDemo) await updateDoc(doc(db, 'emergencies', incidentId), { videoEvidence: video });
   };
 
   return (
     <EmergencyContext.Provider value={{
-      currentUser, 
-      registerUser, 
-      updateUserProfile, 
-      registerHospital, 
-      loginUser, 
+      currentUser,
+      registerUser,
+      updateUserProfile,
+      registerHospital,
+      loginUser,
+      loginWithFace,
       logoutUser,
-      initiatePasswordReset, 
-      sendPasswordReset, 
+      initiatePasswordReset,
+      sendPasswordReset,
       updateHospitalStatus,
       activeEmergencies,
-      dispatchEmergency, 
-      updateEmergencyType, 
+      dispatchEmergency,
+      updateEmergencyType,
       updateEmergencyStatus,
       assignHospital,
       rejectEmergencyRequest, 
+      rejectEmergency,
       resolveEmergency, 
       addVideoEvidence,
-      updateEmergencyLocation
+      updateEmergencyLocation,
+      updateAmbulanceLocation,
+      allHospitals
     }}>
       {children}
     </EmergencyContext.Provider>
